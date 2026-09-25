@@ -1,0 +1,369 @@
+---
+title: "Homework1_Sabrina_Zhang"
+author: "Sabrina Zhang"
+format: html
+editor: visual
+embed-resources: true
+theme: darkly
+---
+
+## Step 1 read data and EDA
+
+```{r}
+# read data files
+pm_2022 <- read.csv("D:/USC-MPH2025/PM566/PM566/pm2.5_Cal_2022.csv")
+pm_2002 <- read.csv("D:/USC-MPH2025/PM566/PM566/pm2.5_Cal_2002.csv")
+
+# EDA check the data
+dim(pm_2022)
+dim(pm_2002)
+
+
+# head and tail rows
+head(pm_2022)
+tail(pm_2022)
+head(pm_2002)
+tail(pm_2002)
+
+# check variable and data type
+names(pm_2022)
+str(pm_2022)
+str(pm_2002)
+
+# Check key variable descriptive distribution
+summary(pm_2022$Daily.Mean.PM2.5.Concentration)
+summary(pm_2002$Daily.Mean.PM2.5.Concentration)
+
+# Plot histogram
+hist(pm_2022$Daily.Mean.PM2.5.Concentration)
+hist(pm_2002$Daily.Mean.PM2.5.Concentration)
+
+# Check missings
+mean(is.na(pm_2022$Daily.Mean.PM2.5.Concentration))
+mean(is.na(pm_2002$Daily.Mean.PM2.5.Concentration))
+
+#number of sites
+length(unique(pm_2022$Local.Site.Name))
+length(unique(pm_2002$Local.Site.Name))
+
+```
+
+The California PM2.5 datasets from 2002 and 2022 contain similar structures with 22 variables each, but differ significantly in their PM2.5 measurements. The 2022 dataset has 59,918 observations while 2002 has 15,976 observations,because of more monitoring sites allocated in these 20 years (103 sites in 2002 and 165 sites in 2022).
+
+The PM2.5 concentration variable shows no missing values in either year. The 2002 data shows a higher median PM2.5 concentration (12 ug/m3) compared to 2022 (6.8 ug/m3), suggesting air quality improvements over the 20 year period. The maximum daily mean PM2.5 concentration for 2022 (302.5) significantly higher than 2002(104.3) might indicate more extreme pollution days because of pollution events such as mountain fires.
+
+Dataset in 2022 have some implausible negative values, mindful for further analysis.
+
+## Step 2 Combine data
+
+```{r}
+library(dplyr)
+
+# Convert date to 3 variables
+pm_2022$Date <- as.Date(pm_2022$Date, format = "%m/%d/%Y")
+pm_2002$Date <- as.Date(pm_2002$Date, format = "%m/%d/%Y")
+
+# Combine
+pm_combined <- rbind(pm_2022, pm_2002)
+pm_combined$year <- format(pm_combined$Date, "%Y")
+
+# Rename variables
+names(pm_combined)[names(pm_combined) == "Daily.Mean.PM2.5.Concentration"] <- "PM25"
+names(pm_combined)[names(pm_combined) == "Site.Latitude"] <- "lat"
+names(pm_combined)[names(pm_combined) == "Site.Longitude"] <- "lon"
+names(pm_combined)[names(pm_combined) == "County"] <- "county"
+names(pm_combined)[names(pm_combined) == "Local.Site.Name"] <- "site_name"
+
+```
+
+The 2022 and 2002 datasets were combined into a single dataframe with 75,894 total observations. A year variable was added to distinguish between the two time periods. The Date variable was converted from character format to month day year variables. Key variables were renamed for easier reference in subsequent analyses.
+
+Daily.Mean.PM2.5.Concentration as PM25
+
+Site.Latitude as lat
+
+Site.Longitude as lon
+
+County as county
+
+Local.Site.Name as site_name
+
+## Step 3 Create Map
+
+```{r}
+library(leaflet)
+
+# Plot maps for both years
+pm_2022_map_data <- pm_combined %>% 
+  filter(year == 2022) %>%
+  select(lat, lon, site_name) %>%  
+  distinct()  
+
+pm_2002_map_data <- pm_combined %>% 
+  filter(year == 2002) %>%
+  select(lat, lon, site_name) %>%  
+  distinct()
+
+# Plot map
+map <- leaflet() %>%
+  addProviderTiles('CartoDB.Positron') %>%
+  addCircles(
+    data = pm_2022_map_data,
+    lat = ~lat, lng = ~lon,
+    label = ~site_name,
+    color = "red",
+    opacity = 0.8,
+    fillOpacity = 0.5,
+    radius = 400,
+    popup = "2022"
+  ) %>%
+  addCircles(
+    data = pm_2002_map_data,
+    lat = ~lat, lng = ~lon,
+    label = ~site_name,
+    color = "blue",
+    opacity = 0.5,
+    fillOpacity = 0.8,
+    radius = 400,
+    popup = "2002"
+  ) %>%
+  addLegend('bottomright', 
+            colors = c('red', 'blue'),
+            labels = c('2022', '2002'),
+            opacity = 0.7)
+
+map
+
+```
+
+The map comparison reveals notable changes in California's air quality monitoring network between 2002 and 2022. Both years show monitoring sites distributed across the state, with concentrations in urban areas and regions with significant air quality concerns. The 2022 monitoring network (red dots) appears denser than 2002 (blue dots).
+
+The spatial distribution has remained largely consistent geographically, with monitoring sites concentrated in populated areas. The western coastal areas and the interior valleys remain the focus of monitoring efforts in both years.
+
+## Step 4 Check data
+
+```{r}
+# Check missing
+missing_2022 <- mean(is.na(pm_combined$PM25[pm_combined$year == 2022]))
+missing_2002 <- mean(is.na(pm_combined$PM25[pm_combined$year == 2002]))
+
+# Check implausible
+implausible_count_2022 <- sum(pm_combined$PM25 < 0 & pm_combined$year == 2022, na.rm = TRUE)
+implausible_count_2002 <- sum(pm_combined$PM25 < 0 & pm_combined$year == 2002, na.rm = TRUE)
+data_quality_summary <- pm_combined %>%
+  group_by(year) %>%
+  summarise(
+    total_obs = n(),
+    n_missing = sum(is.na(PM25)),
+    prop_missing = round(mean(is.na(PM25)), 4),
+    n_implausible = sum(PM25 < 0, na.rm = TRUE),
+    prop_implausible = round(mean(PM25 < 0, na.rm = TRUE), 4),
+    .groups = 'drop'
+  )
+print(data_quality_summary)
+
+#Delete Implausible
+pm_combined <- pm_combined[pm_combined$PM25 >= 0, ]
+
+# Distribution by year
+summary(pm_combined$PM25[pm_combined$year == 2022])
+summary(pm_combined$PM25[pm_combined$year == 2002])
+
+# double check by year
+library(dplyr)
+temporal_pattern <- pm_combined %>%
+  group_by(year) %>%
+  summarise(
+    n_obs = n(),
+    n_missing = sum(is.na(PM25)),
+    prop_missing = mean(is.na(PM25))
+  )
+
+print(temporal_pattern)
+```
+
+Both datasets show zero missing values for the PM2.5 concentration variable. However, the 2022 data contains 215 (0.36%) implausible negative PM2.5 values which are physically impossible as particulate matter concentrations cannot be negative. These likely represent measurement errors or instrument issues, and may indicate changes in measurement methodology or instrument sensitivity between the two years. Therefore, all subsequent analyses exclude the 215 negative PM2.5 observations.
+
+## Step 5 Spatial Analysis
+
+```{r}
+library(ggplot2)
+
+# By state
+# Box plot by year
+pm_combined %>%
+  filter(!is.na(PM25)) %>%
+  ggplot(aes(x = factor(year), y = PM25, fill = factor(year))) +
+  geom_boxplot() +
+  labs(
+    title = "PM2.5 Concentration in California: 2002 vs 2022",
+    x = "Year",
+    y = "Daily Mean PM2.5 (ug/m3)",
+    fill = "Year"
+  ) +
+  theme_minimal()
+
+# EDA summary
+pm_combined %>%
+  filter(!is.na(PM25)) %>%
+  group_by(year) %>%
+  summarise(
+    mean_PM25 = mean(PM25),
+    median_PM25 = median(PM25),
+    sd_PM25 = sd(PM25),
+    min_PM25 = min(PM25),
+    max_PM25 = max(PM25)
+  )
+
+```
+
+By state level
+
+The statewide comparison reveals substantial improvement in California's air quality over the 20-year period. The median PM2.5 concentration decreased from 12.0 ug/m3 in 2002 to 6.8 ug/m3 in 2022.
+
+The distribution of PM2.5 concentrations is right-skewed in both years, with higher pollution events creating occasional spikes. However, 2022 shows a much more concentrated distribution around lower values, reflecting cleaner baseline air quality. The maximum daily concentration increased from 104.3 ug/m3 in 2002 to 302.5 ug/m3 in 2022 , the upper tail for 2022 longer than 2002 , suggesting more extreme high PM2.5 concentrations needing more investigations.
+
+```{r}
+# By county
+# Mean
+county_avg <- pm_combined %>%
+  filter(!is.na(PM25), !is.na(county)) %>%
+  group_by(county, year) %>%
+  summarise(mean_PM25 = mean(PM25, na.rm = TRUE), .groups = 'drop')
+
+# Visualize mean
+county_avg %>%
+  ggplot(aes(x = reorder(county, mean_PM25), y = mean_PM25, fill = factor(year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Average PM2.5 by County: 2002 vs 2022",
+    x = "County",
+    y = "Mean PM2.5 (ug/m3)",
+    fill = "Year"
+  ) +
+  theme_minimal()
+# Compare by counties in both 2002 and 2022
+county_2002 <- pm_combined %>%
+  filter(year == 2002, !is.na(PM25), !is.na(county)) %>%
+  group_by(county) %>%
+  summarise(mean_2002 = round(mean(PM25), 2), .groups = 'drop')
+
+county_2022 <- pm_combined %>%
+  filter(year == 2022, !is.na(PM25), !is.na(county)) %>%
+  group_by(county) %>%
+  summarise(mean_2022 = round(mean(PM25), 2), .groups = 'drop')
+
+county_comparison <- merge(
+  x = county_2002,
+  y = county_2022,
+  by = "county",
+  all.x = TRUE,
+  all.y = FALSE
+) %>%
+  mutate(
+    difference = round(mean_2022 - mean_2002, 2),
+    pct_reduction = round((mean_2002 - mean_2022) / mean_2002 * 100, 1)
+  ) %>%
+  arrange(desc(pct_reduction))
+
+print(county_comparison)
+
+```
+
+By county level
+
+County level analysis demonstrates that air quality improvements vary geographically across California. All counties show some reduction in PM2.5 levels from 2002 to 2022, but the magnitude of improvement differs substantially by location.
+
+The largest improvements appear in the Kern, Tulare, Kings, which experienced the most severe air pollution in 2002. These counties show more than 50% reductions by 2022.
+
+Coastal counties (San Diego, Santa Barbara, Ventura) had lower baseline pollution and show more modest absolute reductions but maintain the best air quality overall. Counties in the San Francisco Bay Area and Sacramento Valley show intermediate improvements, with reductions of 35-45%. This county level variation likely reflects differences in local emission sources, geographic barriers to air dispersion, regulatory issues, etc.
+
+The persistent variation between counties indicates that while statewide progress is evident, some regions continue to face air quality challenges relative to others.
+
+```{r}
+# LA County level
+# Filter only LA
+la_data <- pm_combined %>%
+  filter(county == "Los Angeles", !is.na(PM25))
+
+# PM2.5 Level detected by each site in LA
+la_data %>%
+  filter(!is.na(site_name)) %>%
+  ggplot(aes(x = factor(year), y = PM25, fill = factor(year))) +
+  geom_violin(alpha = 0.7) +
+  facet_wrap(~ site_name, nrow = 3) +
+  labs(
+    title = "PM2.5 Distribution in Los Angeles County Sites: 2002 vs 2022",
+    x = "Year",
+    y = "Daily Mean PM2.5 (ug/m3)",
+    fill = "Year"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# LA EDA summary
+la_data %>%
+  group_by(year, site_name) %>%
+  summarise(
+    mean_PM25 = mean(PM25, na.rm = TRUE),
+    median_PM25 = median(PM25, na.rm = TRUE),
+    n_obs = n()
+  )
+
+# Compare by sites in both 2002 and 2022
+common_sites <- la_data %>% 
+  group_by(site_name) %>%
+  summarise(n_years = n_distinct(year), .groups = 'drop') %>%
+  filter(n_years == 2) %>%
+  pull(site_name)
+la_common <- la_data %>% filter(site_name %in% common_sites, !is.na(PM25))
+la_common %>%
+  group_by(year) %>%
+  summarise(
+    mean_PM25 = round(mean(PM25), 2),
+    median_PM25 = round(median(PM25), 2),
+    sd_PM25 = round(sd(PM25), 2),
+    .groups = 'drop'
+  )
+la_common %>%
+  ggplot(aes(x = factor(year), y = PM25, fill = factor(year))) +
+  geom_boxplot() +
+  facet_wrap(~site_name) +
+  labs(title = "PM2.5: LA County Common Sites (2002 vs 2022)",
+       x = "Year", y = "PM2.5 (ug/m3)") +
+  theme_minimal()
+
+#comparing between 2 years in sites
+summary_2002 <- la_common %>%
+  filter(year == 2002) %>%
+  group_by(site_name) %>%
+  summarise(mean_2002 = round(mean(PM25), 2), .groups = 'drop')
+
+summary_2022 <- la_common %>%
+  filter(year == 2022) %>%
+  group_by(site_name) %>%
+  summarise(mean_2022 = round(mean(PM25), 2), .groups = 'drop')
+
+comparison <- merge(
+  x = summary_2002,
+  y = summary_2022,
+  by = "site_name",
+  all.x = TRUE,
+  all.y = FALSE
+) %>%
+  mutate(
+    difference = round(mean_2022 - mean_2002, 2),
+    pct_reduction = round((mean_2002 - mean_2022) / mean_2002 * 100, 1)
+  ) %>%
+  arrange(desc(pct_reduction))
+
+print(comparison)
+
+```
+
+By city level
+
+The county experienced an overall mean PM2.5 reduction from 18.68 ug/m3 in 2002 to 10.25 ug/m3 in 2022, representing a remarkable improvement. However, the violin plots reveal substantial variation among the monitoring sites within LA County. Sites in downtown Los Angeles and Long Beach show consistent improvements, with 2022 distributions concentrated at lower values. The distributions are generally right-skewed in both years, indicating occasional pollution events, but 2022 shows tighter distributions and fewer extreme outliers. This suggests that while LA County's air quality has improved substantially.
+
+All seven monitoring sites in Los Angeles County with data in both 2002 and 2022 show substantial PM2.5 reductions, ranging from 27% to 55%. Pasadena and Azusa experienced the greatest improvements, declining 55.2% and 53.2% respectively, from baseline levels above 20 ug/m3 in 2002 to single digits in 2022. These inland and southwestern sites had the worst air quality two decades ago but now meet healthier standards, indicating successful pollution control in historically high-exposure areas. Urban core sites (Long Beach North, Los Angeles-North Main Street, Reseda) showed more modest percentage reductions of 43–49%, though absolute concentrations still fell from 18–22 to 10–12 ug/m3. Lancaster-Division Street and Lebec had the smallest improvements (27% each).
