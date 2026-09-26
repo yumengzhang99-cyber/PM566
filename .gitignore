@@ -49,3 +49,8 @@ po/*~
 rsconnect/
 
 secret/
+
+# Data files
+met_all.gz
+pm2.5_Cal_2002.csv
+pm2.5_Cal_2022.csv
