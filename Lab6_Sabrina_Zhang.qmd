@@ -1,0 +1,159 @@
+---
+title: "Lab6_Sabrina_Zhang"
+author: "Sabrina_Zhang"
+format: html
+editor: visual
+resource_embeded: TRUE
+theme: darkly
+---
+
+## Prepair and import data
+
+```{r}
+library(tidyverse)
+library(tidytext)
+library(readr)
+library(dplyr)
+mt_samples <- read_csv("https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv")
+mt_samples <- mt_samples |>
+  select(description, medical_specialty, transcription)
+
+head(mt_samples)
+
+```
+
+
+## Question 1: What specialties do we have?
+
+```{r}
+mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+
+mt_samples %>%
+  count(medical_specialty, sort = TRUE) %>%
+  ggplot(aes(n, fct_reorder(medical_specialty, n))) +
+  geom_col() +
+  theme(axis.text.y = element_text(size = 8)) +
+  labs(
+    title = "Distribution of Medical Specialties",
+    x = "Count",
+    y = "Medical Specialty"
+  )
+```
+There are 40 specialties across 4,999 samples, and the distribution is very uneven: Surgery alone has 1,103 (about 22%). Several categories overlap in subject, such as Surgery, Orthopedic, and Bariatrics, all of which cover operative care.
+
+## Question 2
+
+```{r}
+mt_samples |> 
+  unnest_tokens(token, transcription) |>
+  count(token, sort=TRUE) |> 
+  top_n(20,n) |>
+  ggplot(aes(n, fct_reorder(token, n))) +
+  geom_col()
+```
+The top 20 words are almost all function words like “the,” “and,” “was,” and “of.” The only content words that stand out are “patient” and “right”.” This makes sense for narrative clinical notes, but the plot tells us very little about what the notes are about.
+
+## Question 3
+
+```{r}
+mt_samples |> 
+  unnest_tokens(token, transcription) |>
+  anti_join(stop_words, by = c("token"="word")) |> 
+  filter(!grepl("^[0-9.]+$", token)) |>   #remove all token of numbers include decimals.
+  count(token, sort=TRUE) |> 
+  top_n(20,n) |>
+  ggplot(aes(n, fct_reorder(token, n))) +
+  geom_col()
+```
+
+After removing stop words and numbers, the list becomes informative: patient, right, left, history, normal, procedure, placed, pain, blood, and anesthesia. These point to surgical activity, physical exams, and patient complaints. It gives a much clearer picture of the text than Question 2 did.
+
+## Question 4
+
+```{r}
+mt_samples |> 
+  unnest_ngrams(ngram, transcription, n=2) |>
+  count(ngram, sort=TRUE) |>
+  top_n(20,n) |>
+  ggplot(aes(n, fct_reorder(ngram, n))) +
+  geom_col()
+```
+
+```{r}
+mt_samples |> 
+  unnest_ngrams(ngram, transcription, n=3) |>
+  count(ngram, sort=TRUE) |>
+  top_n(20,n) |>
+  ggplot(aes(n, fct_reorder(ngram, n))) +
+  geom_col()
+```
+The top bigrams are mostly function word pairs like “the patient” and “of the.” Trigrams are more useful: “the patient was”, “tolerated the procedure,” and “past medical history” are standard phrases from templated clinical notes. Longer n-grams capture more of the document’s structure.
+
+## Question 5
+
+```{r}
+mt_samples|>
+  unnest_ngrams(ngram, transcription, n = 2) |>
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word1 == "medical") |>
+  count(word2, sort = TRUE)
+```
+
+```{r}
+mt_samples|>
+  unnest_ngrams(ngram, transcription, n = 2) |> 
+  separate(ngram, into = c("word1", "word2"), sep = " ") |>
+  select(word1, word2) |>
+  filter(word2 == "medical") |>
+  count(word1, sort = TRUE)
+```
+“Medical” is almost always followed by “history” (1,223 times) and usually preceded by “past” (1,113 times). In other words, it is mostly part of the fixed heading “past medical history,” not a free-standing content word.
+
+## Question 6
+
+```{r}
+mt_samples |>
+  unnest_tokens(token, transcription) |>
+  anti_join(stop_words, by = c("token" = "word")) |>
+  filter(!grepl("^[0-9.]+$", token)) |>
+  count(medical_specialty, token, sort = TRUE) |>
+  group_by(medical_specialty) |>
+  slice_max(n, n = 5, with_ties = FALSE) |>
+  arrange(medical_specialty, desc(n))
+```
+After removing stop words, each specialty has its own vocabulary. Allergy / Immunology’s top words include “allergies” and “nasal,” while Autopsy’s include “neck,” “anterior,” and “body.” Thus, the specialty-specific terms are the more informative ones.
+
+## Question 7
+```{r}
+mt_samples |>
+  unnest_tokens(token, transcription) |>
+  filter(token == "smoke") |>
+  count(medical_specialty, sort = TRUE) |>
+  ggplot(aes(n, fct_reorder(medical_specialty, n))) +
+  geom_col() +
+  labs(x = "Count of 'smoke'", y = "Medical Specialty")
+```
+The word “smoke” shows up most often in Consult - History and Phy. notes (about 72 times). These notes usually include a social history, which is probably why. General Medicine (about 21), Cardiovascular / Pulmonary (about 20), and Emergency Room Reports (about 16) come next. Most other specialties have 10 or fewer mentions.
+
+This chart shows raw counts, so specialties with more notes will naturally show higher numbers. 
+
+```{r}
+totals <- mt_samples |>
+  count(medical_specialty, name = "total")
+
+mt_samples |>
+  mutate(id = row_number()) |>
+  unnest_tokens(token, transcription) |>
+  filter(token == "smoke") |>
+  distinct(id, medical_specialty) |>
+  count(medical_specialty, name = "smoke_notes") |>
+  left_join(totals, by = "medical_specialty") |>
+  mutate(pct = smoke_notes / total * 100) |>
+  arrange(desc(pct)) |>
+  ggplot(aes(pct, fct_reorder(medical_specialty, pct))) +
+  geom_col() +
+  labs(x = "% of notes mentioning 'smoke'", y = "Medical Specialty")
+```
+When we look at the share of notes that mention “smoke,” the ranking changes a lot. Chiropractic and Emergency Room Reports are highest, at about 21% each, followed by IME-QME-Work Comp (about 19%) and Hospice - Palliative Care (about 17%). Consult - History and Phy. is about 14%, which is much lower than its raw count suggested. Surgery is near 0%.
